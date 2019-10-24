@@ -12,15 +12,18 @@
  
 ------------------------------------------ Configuration ------------------------------------------
 
- -- Filter data for user defined tables (use 0 for no filter) 
+ -- Filter for user defined tables (use 0 for no filter) 
  DECLARE @UserOnly  bit = 1;
+ 
+ -- Filter for specific databases using comma separated values (use NULL for no filter)
+ DECLARE @DbList    nvarchar(max);
 
  -- Working variables
- DECLARE @DBName    nvarchar(128);
+ DECLARE @DbName    nvarchar(128);
 
  DECLARE @AllTables table 
  (
-     DBName         nvarchar(128),
+     DbName         nvarchar(128),
      SchemaName     nvarchar(128),
      TableName      nvarchar(128)
  );
@@ -30,26 +33,30 @@
  ------------------------------------------ Implementation ----------------------------------------
 
  DECLARE Crs CURSOR
- FOR SELECT QUOTENAME([name])
-       FROM sys.databases
-      WHERE [state] = 0
-            AND database_id > @UserOnly*4;
+ FOR SELECT QUOTENAME(d.[name])
+       FROM sys.databases AS d
+            LEFT JOIN STRING_SPLIT(@DbList, ',') AS s
+              ON d.[name] = LTRIM(s.[value])
+      WHERE d.[state] = 0
+            AND d.database_id > @UserOnly*4
+            AND d.[name] = CASE WHEN @DbList IS NULL THEN d.[name]
+                                ELSE LTRIM(s.[value]) END;
 
 
  OPEN Crs;
- FETCH NEXT FROM Crs INTO @DBName;
+ FETCH NEXT FROM Crs INTO @DbName;
 
  
  WHILE @@FETCH_STATUS = 0
  BEGIN
 
-     INSERT INTO @AllTables (DBName, SchemaName, TableName)
-     EXEC ('SELECT PARSENAME(''' + @DBName + ''', 1), s.name, t.name 
-              FROM ' + @DBName + '.sys.tables AS t 
+     INSERT INTO @AllTables (DbName, SchemaName, TableName)
+     EXEC ('SELECT PARSENAME(''' + @DbName + ''', 1), s.name, t.name 
+              FROM ' + @DbName + '.sys.tables AS t 
                    INNER JOIN sys.schemas AS s
                       ON t.schema_id = s.schema_id;');
 
-     FETCH NEXT FROM Crs INTO @DBName;
+     FETCH NEXT FROM Crs INTO @DbName;
 
  END; -- WHILE @@FETCH_STATUS = 0
 
@@ -60,24 +67,24 @@
 
  SELECT * 
    FROM @AllTables
-  ORDER BY DBName, SchemaName, TableName;
+  ORDER BY DbName, SchemaName, TableName;
 
 
 
  ----------------------------------------- Other approaches ---------------------------------------
 
-  /*
+ /*
 
-  DECLARE @AllTables table 
+ DECLARE @AllTables table 
  (
-     DBName      nvarchar(4000),
-     SchemaName  nvarchar(4000),
-     TableName   nvarchar(4000)
+    DbName      nvarchar(4000),
+    SchemaName  nvarchar(4000),
+    TableName   nvarchar(4000)
  );
 
 
  INSERT INTO @AllTables
-   EXEC sp_msforeachdb 'SELECT ''?'', s.name, t.name 
+   EXEC sp_msforeachDb 'SELECT ''?'', s.name, t.name 
                           FROM [?].sys.tables AS t 
                                INNER JOIN sys.schemas AS s
                                   ON t.schema_id = s.schema_id';
@@ -85,6 +92,6 @@
 
  SELECT * 
    FROM @AllTables
-  ORDER BY DBName, SchemaName, TableName;
+  ORDER BY DbName, SchemaName, TableName;
 
-  */
+ */
